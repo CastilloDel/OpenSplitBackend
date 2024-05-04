@@ -1,11 +1,13 @@
 use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
 use balance::{compute_balance_from_group, compute_user_balance_by_group};
+use exchange::{get_exchanges_from_group};
 use futures::stream::StreamExt;
 use mongodb::{bson::doc, options::IndexOptions, Client, IndexModel};
 use schemas::{Expense, Group};
 use serde::{Deserialize, Serialize};
 mod balance;
 mod schemas;
+mod exchange;
 
 const DATABASE_NAME: &'static str = "OpenSplit";
 const GROUP_COLLECTION_NAME: &'static str = "Groups";
@@ -41,7 +43,7 @@ async fn get_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpRe
         .database(DATABASE_NAME)
         .collection(GROUP_COLLECTION_NAME);
     match groups.find_one(doc! { "id": id.into_inner()}, None).await {
-        Ok(Some(group)) => HttpResponse::Ok().json(compute_balance_from_group(group)),
+        Ok(Some(group)) => HttpResponse::Ok().json(compute_balance_from_group(&group)),
         Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
     }
@@ -88,6 +90,18 @@ async fn get_user_balance(client: web::Data<Client>, id: web::Path<String>) -> H
     };
 
     HttpResponse::Ok().json(compute_user_balance_by_group(id, groups_user_is_in))
+}
+
+#[get("/groups/{id}/exchanges")]
+async fn get_exchanges(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection(GROUP_COLLECTION_NAME);
+    match groups.find_one(doc! { "id": id.into_inner()}, None).await {
+        Ok(Some(group)) => HttpResponse::Ok().json(get_exchanges_from_group(&group)),
+        Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    }
 }
 
 #[actix_web::main]
