@@ -1,15 +1,14 @@
 use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
-use mongodb::{bson::doc, Client};
-mod schemas;
+use balance::{compute_balance_from_group, compute_user_balance_by_group};
 use futures::stream::StreamExt;
-use schemas::Group;
+use mongodb::{bson::doc, options::IndexOptions, Client, IndexModel};
+use schemas::{Expense, Group};
 use serde::{Deserialize, Serialize};
-
-use crate::{
-    balance::{compute_balance_from_group, compute_user_balance_by_group},
-    schemas::Expense,
-};
 mod balance;
+mod schemas;
+
+const DATABASE_NAME: &'static str = "OpenSplit";
+const GROUP_COLLECTION_NAME: &'static str = "Groups";
 
 #[derive(Deserialize, Serialize)]
 struct GroupNameJson {
@@ -22,7 +21,9 @@ async fn add_group(
     id: web::Path<String>,
     json: web::Json<GroupNameJson>,
 ) -> HttpResponse {
-    let groups = client.database("OpenSplit").collection("Groups");
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection(GROUP_COLLECTION_NAME);
     let group = Group {
         name: json.into_inner().name,
         id: id.into_inner(),
@@ -36,7 +37,9 @@ async fn add_group(
 
 #[get("/groups/{id}/balance")]
 async fn get_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
-    let groups = client.database("OpenSplit").collection("Groups");
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection(GROUP_COLLECTION_NAME);
     match groups.find_one(doc! { "id": id.into_inner()}, None).await {
         Ok(Some(group)) => HttpResponse::Ok().json(compute_balance_from_group(group)),
         Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
@@ -50,7 +53,9 @@ async fn add_expense(
     id: web::Path<String>,
     expense: web::Json<Expense>,
 ) -> HttpResponse {
-    let groups = client.database("OpenSplit").collection::<Group>("Groups");
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection::<Group>(GROUP_COLLECTION_NAME);
     let id = id.into_inner();
     match groups
         .update_one(
@@ -67,7 +72,9 @@ async fn add_expense(
 
 #[get("/users/{nick}/balance")]
 async fn get_user_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
-    let groups = client.database("OpenSplit").collection::<Group>("Groups");
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection::<Group>(GROUP_COLLECTION_NAME);
     let id = id.into_inner();
     let groups_user_is_in: Vec<Group> = match groups
         .find(
@@ -90,6 +97,17 @@ async fn main() -> std::io::Result<()> {
 
     let client = Client::with_uri_str(uri).await.expect("failed to connect");
     println!("Connected");
+    let options = IndexOptions::builder().unique(true).build();
+    let model = IndexModel::builder()
+        .keys(doc! { "id": 1 })
+        .options(options)
+        .build();
+    client
+        .database(DATABASE_NAME)
+        .collection::<Group>(GROUP_COLLECTION_NAME)
+        .create_index(model, None)
+        .await
+        .expect("Database in an incosistent state");
 
     HttpServer::new(move || {
         App::new()
