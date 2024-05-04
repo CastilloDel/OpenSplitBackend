@@ -1,21 +1,41 @@
-use actix_web::{post, web, App, HttpResponse, HttpServer};
+use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
 use mongodb::{bson::doc, Client};
-mod user;
-use user::User;
+mod schemas;
+use schemas::Group;
+use serde::{Deserialize, Serialize};
 
-/// Adds a new user to the "users" collection in the database.
-#[post("/add_user")]
-async fn add_user(client: web::Data<Client>) -> HttpResponse {
-    let collection = client.database("OpenSplit").collection("Users");
-    let user = User {
-        first_name: String::from("a"),
-        last_name: String::from("b "),
-        username: String::from("c"),
-        email: String::from("d"),
+use crate::{balance::compute_balance_from_group, schemas::Expense};
+mod balance;
+
+#[derive(Deserialize, Serialize)]
+struct GroupNameJson {
+    name: String,
+}
+
+#[put("/groups/{id}")]
+async fn add_group(
+    client: web::Data<Client>,
+    id: web::Path<String>,
+    json: web::Json<GroupNameJson>,
+) -> HttpResponse {
+    let groups = client.database("OpenSplit").collection("Groups");
+    let group = Group {
+        name: json.into_inner().name,
+        id: id.into_inner(),
+        expenses: vec![],
     };
-    let result = collection.insert_one(user, None).await;
-    match result {
-        Ok(_) => HttpResponse::Ok().body("user added"),
+    match groups.insert_one(group, None).await {
+        Ok(_) => HttpResponse::Ok().body("Group added"),
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    }
+}
+
+#[get("/groups/{id}/balance")]
+async fn get_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
+    let groups = client.database("OpenSplit").collection("Groups");
+    match groups.find_one(doc! { "id": id.into_inner()}, None).await {
+        Ok(Some(group)) => HttpResponse::Ok().json(compute_balance_from_group(group)),
+        Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
     }
 }
@@ -23,7 +43,7 @@ async fn add_user(client: web::Data<Client>) -> HttpResponse {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let uri = std::env::var("MONGODB_URI").expect("You need to add the MONGODB_URI to the env");
-    println!("{}", uri);
+    println!("Using the following URI: {}", uri);
 
     let client = Client::with_uri_str(uri).await.expect("failed to connect");
     println!("Connected");
@@ -31,9 +51,10 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(client.clone()))
-            .service(add_user)
+            .service(add_group)
+            .service(get_balance)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("0.0.0.0", 8080))?
     .run()
     .await
 }
