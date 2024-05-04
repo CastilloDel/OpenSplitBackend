@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use crate::schemas::Group;
 
-type Balance = HashMap<String, f64>;
+type GroupBalance = HashMap<String, f64>;
 
-pub fn compute_balance_from_group(group: Group) -> Balance {
-    let mut balance = Balance::new();
+pub fn compute_balance_from_group(group: Group) -> GroupBalance {
+    let mut balance = GroupBalance::new();
     for expense in group.expenses {
         let amount = expense.amount;
         balance
@@ -21,4 +21,22 @@ pub fn compute_balance_from_group(group: Group) -> Balance {
         }
     }
     balance
+}
+
+type UserBalance = HashMap<String, f64>;
+
+pub fn compute_user_balance_by_group(user_nick: String, groups: Vec<Group>) -> UserBalance {
+    let mut user_balance = UserBalance::new();
+    for group in groups {
+        let mut group_balance = 0.0;
+        for expense in group.expenses {
+            if expense.payer == user_nick {
+                group_balance += expense.amount;
+            } else if expense.receivers.contains(&user_nick) {
+                group_balance -= expense.amount / expense.receivers.len() as f64;
+            }
+        }
+        user_balance.insert(group.name, group_balance);
+    }
+    user_balance
 }

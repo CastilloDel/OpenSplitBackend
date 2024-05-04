@@ -1,10 +1,14 @@
 use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
 use mongodb::{bson::doc, Client};
 mod schemas;
+use futures::stream::StreamExt;
 use schemas::Group;
 use serde::{Deserialize, Serialize};
 
-use crate::{balance::compute_balance_from_group, schemas::Expense};
+use crate::{
+    balance::{compute_balance_from_group, compute_user_balance_by_group},
+    schemas::Expense,
+};
 mod balance;
 
 #[derive(Deserialize, Serialize)]
@@ -61,6 +65,24 @@ async fn add_expense(
     }
 }
 
+#[get("/users/{nick}/balance")]
+async fn get_user_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
+    let groups = client.database("OpenSplit").collection::<Group>("Groups");
+    let id = id.into_inner();
+    let groups_user_is_in: Vec<Group> = match groups
+        .find(
+            doc! { "expenses": { "$elemMatch": { "$or": [{"receivers": {"$in": [&id] }}, { "payer": &id}]}}},
+            None,
+        )
+        .await
+    {
+        Ok(balance) => balance.collect::<Vec<_>>().await.into_iter().filter_map(|result| result.ok()).collect(),
+        Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
+    };
+
+    HttpResponse::Ok().json(compute_user_balance_by_group(id, groups_user_is_in))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let uri = std::env::var("MONGODB_URI").expect("You need to add the MONGODB_URI to the env");
@@ -75,6 +97,7 @@ async fn main() -> std::io::Result<()> {
             .service(add_group)
             .service(get_balance)
             .service(add_expense)
+            .service(get_user_balance)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
