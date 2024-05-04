@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
 use balance::{compute_balance_from_group, compute_user_balance_by_group};
 use exchange::get_exchanges_from_group;
@@ -127,6 +128,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(client.clone()))
+            .wrap(Cors::permissive())
             .service(add_group)
             .service(get_balance)
             .service(add_expense)
