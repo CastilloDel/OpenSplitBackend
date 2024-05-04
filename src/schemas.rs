@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub type UserNick = String;
+
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct Group {
     pub id: String,
@@ -11,6 +13,6 @@ pub struct Group {
 pub struct Expense {
     pub name: String,
     pub amount: f64,
-    pub payer: String,
-    pub receivers: Vec<String>,
+    pub payer: UserNick,
+    pub receivers: Vec<UserNick>,
 }

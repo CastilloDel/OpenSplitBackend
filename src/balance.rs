@@ -1,8 +1,7 @@
+use crate::schemas::{Group, UserNick};
 use std::collections::HashMap;
 
-use crate::schemas::Group;
-
-type GroupBalance = HashMap<String, f64>;
+type GroupBalance = HashMap<UserNick, f64>;
 
 pub fn compute_balance_from_group(group: &Group) -> GroupBalance {
     let mut balance = GroupBalance::new();
@@ -23,9 +22,10 @@ pub fn compute_balance_from_group(group: &Group) -> GroupBalance {
     balance
 }
 
-type UserBalance = HashMap<String, f64>;
+type GroupName = String;
+type UserBalance = HashMap<GroupName, f64>;
 
-pub fn compute_user_balance_by_group(user_nick: String, groups: Vec<Group>) -> UserBalance {
+pub fn compute_user_balance_by_group(user_nick: UserNick, groups: Vec<Group>) -> UserBalance {
     let mut user_balance = UserBalance::new();
     for group in groups {
         let mut group_balance = 0.0;

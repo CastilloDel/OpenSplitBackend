@@ -1,13 +1,13 @@
 use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
 use balance::{compute_balance_from_group, compute_user_balance_by_group};
-use exchange::{get_exchanges_from_group};
+use exchange::get_exchanges_from_group;
 use futures::stream::StreamExt;
 use mongodb::{bson::doc, options::IndexOptions, Client, IndexModel};
 use schemas::{Expense, Group};
 use serde::{Deserialize, Serialize};
 mod balance;
-mod schemas;
 mod exchange;
+mod schemas;
 
 const DATABASE_NAME: &'static str = "OpenSplit";
 const GROUP_COLLECTION_NAME: &'static str = "Groups";
@@ -74,6 +74,7 @@ async fn add_expense(
 
 #[get("/users/{nick}/balance")]
 async fn get_user_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
+    println!("hola");
     let groups = client
         .database(DATABASE_NAME)
         .collection::<Group>(GROUP_COLLECTION_NAME);
@@ -130,6 +131,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_balance)
             .service(add_expense)
             .service(get_user_balance)
+            .service(get_exchanges)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
