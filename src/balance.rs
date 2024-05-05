@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use crate::schemas::{Group, UserNick};
 use std::collections::HashMap;
 
@@ -22,21 +24,32 @@ pub fn compute_balance_from_group(group: &Group) -> GroupBalance {
     balance
 }
 
-type GroupName = String;
-type UserBalance = HashMap<GroupName, f64>;
+#[derive(Serialize)]
+pub struct UserGroupBalance {
+    group_id: String,
+    group_name: String,
+    amount: f64,
+}
 
-pub fn compute_user_balance_by_group(user_nick: UserNick, groups: Vec<Group>) -> UserBalance {
-    let mut user_balance = UserBalance::new();
+pub fn compute_user_balance_by_group(
+    user_nick: UserNick,
+    groups: Vec<Group>,
+) -> Vec<UserGroupBalance> {
+    let mut balances = Vec::new();
     for group in groups {
-        let mut group_balance = 0.0;
+        let mut balance = UserGroupBalance {
+            group_id: group.id,
+            group_name: group.name,
+            amount: 0.0,
+        };
         for expense in group.expenses {
             if expense.payer == user_nick {
-                group_balance += expense.amount;
+                balance.amount += expense.amount;
             } else if expense.receivers.contains(&user_nick) {
-                group_balance -= expense.amount / expense.receivers.len() as f64;
+                balance.amount -= expense.amount / expense.receivers.len() as f64;
             }
         }
-        user_balance.insert(group.name, group_balance);
+        balances.push(balance);
     }
-    user_balance
+    balances
 }

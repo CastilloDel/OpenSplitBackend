@@ -143,6 +143,26 @@ async fn get_exchanges(
     }
 }
 
+#[get("/groups/{id}/expenses")]
+async fn get_expenses(
+    request: HttpRequest,
+    client: web::Data<Client>,
+    id: web::Path<String>,
+) -> HttpResponse {
+    match check_authorization_level(request) {
+        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        _ => {}
+    };
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection::<Group>(GROUP_COLLECTION_NAME);
+    match groups.find_one(doc! { "id": id.into_inner()}, None).await {
+        Ok(Some(group)) => HttpResponse::Ok().json(&group.expenses),
+        Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let uri = env::var("MONGODB_URI").expect("You need to add MONGODB_URI to the env");
@@ -170,7 +190,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_balance)
             .service(add_expense)
             .service(get_user_balance)
-            .service(get_exchanges)
+            .service(get_expenses)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
