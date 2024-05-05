@@ -1,10 +1,11 @@
 use actix_cors::Cors;
 use actix_web::{get, post, put, web, App, HttpRequest, HttpResponse, HttpServer};
+use auth::AuthorizationLevel;
 use balance::{compute_balance_from_group, compute_user_balance_by_group};
 use exchange::get_exchanges_from_group;
 use futures::stream::StreamExt;
 use mongodb::{bson::doc, options::IndexOptions, Client, IndexModel};
-use schemas::{Expense, Group};
+use schemas::{Expense, Group, UserNick};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -16,6 +17,13 @@ mod schemas;
 
 const DATABASE_NAME: &'static str = "OpenSplit";
 const GROUP_COLLECTION_NAME: &'static str = "Groups";
+
+fn check_if_user_is_in_group(user: &UserNick, group: &Group) -> bool {
+    group
+        .expenses
+        .iter()
+        .any(|expense| &expense.payer == user || expense.receivers.contains(&user))
+}
 
 #[derive(Deserialize, Serialize)]
 struct GroupNameJson {
@@ -31,6 +39,10 @@ async fn add_group(
 ) -> HttpResponse {
     match check_authorization_level(request) {
         None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        Some(AuthorizationLevel::Frontend(_)) => {
+            // We don't allow puts from the frontend
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
+        }
         _ => {}
     };
     let groups = client
@@ -53,18 +65,24 @@ async fn get_balance(
     client: web::Data<Client>,
     id: web::Path<String>,
 ) -> HttpResponse {
-    match check_authorization_level(request) {
-        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
-        _ => {}
+    let authorization_level = check_authorization_level(request);
+    if let None = authorization_level {
+        return HttpResponse::BadRequest().body("Authorization header was malformed");
     };
     let groups = client
         .database(DATABASE_NAME)
         .collection(GROUP_COLLECTION_NAME);
-    match groups.find_one(doc! { "id": id.into_inner()}, None).await {
-        Ok(Some(group)) => HttpResponse::Ok().json(compute_balance_from_group(&group)),
-        Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
-    }
+    let group = match groups.find_one(doc! { "id": id.into_inner()}, None).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return HttpResponse::NotFound().body("Couldn't find the desired group"),
+        Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
+    };
+    if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
+        if check_if_user_is_in_group(&nick, &group) {
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
+        }
+    };
+    HttpResponse::Ok().json(compute_balance_from_group(&group))
 }
 
 #[post("/groups/{id}/expenses")]
@@ -76,6 +94,10 @@ async fn add_expense(
 ) -> HttpResponse {
     match check_authorization_level(request) {
         None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        Some(AuthorizationLevel::Frontend(_)) => {
+            // We don't allow posts from the frontend
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
+        }
         _ => {}
     };
     let groups = client
@@ -101,14 +123,17 @@ async fn get_user_balance(
     client: web::Data<Client>,
     id: web::Path<String>,
 ) -> HttpResponse {
+    let id = id.into_inner();
     match check_authorization_level(request) {
         None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        Some(AuthorizationLevel::Frontend(nick)) if nick != id => {
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query")
+        }
         _ => {}
     };
     let groups = client
         .database(DATABASE_NAME)
         .collection::<Group>(GROUP_COLLECTION_NAME);
-    let id = id.into_inner();
     let groups_user_is_in: Vec<Group> = match groups
         .find(
             doc! { "expenses": { "$elemMatch": { "$or": [{"receivers": {"$in": [&id] }}, { "payer": &id}]}}},
@@ -129,18 +154,24 @@ async fn get_exchanges(
     client: web::Data<Client>,
     id: web::Path<String>,
 ) -> HttpResponse {
-    match check_authorization_level(request) {
-        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
-        _ => {}
+    let authorization_level = check_authorization_level(request);
+    if let None = authorization_level {
+        return HttpResponse::BadRequest().body("Authorization header was malformed");
     };
     let groups = client
         .database(DATABASE_NAME)
-        .collection(GROUP_COLLECTION_NAME);
-    match groups.find_one(doc! { "id": id.into_inner()}, None).await {
-        Ok(Some(group)) => HttpResponse::Ok().json(get_exchanges_from_group(&group)),
-        Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
-    }
+        .collection::<Group>(GROUP_COLLECTION_NAME);
+    let group = match groups.find_one(doc! { "id": id.into_inner()}, None).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return HttpResponse::NotFound().body("Couldn't find the desired group"),
+        Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
+    };
+    if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
+        if check_if_user_is_in_group(&nick, &group) {
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
+        }
+    };
+    HttpResponse::Ok().json(get_exchanges_from_group(&group))
 }
 
 #[get("/groups/{id}/expenses")]
@@ -149,18 +180,24 @@ async fn get_expenses(
     client: web::Data<Client>,
     id: web::Path<String>,
 ) -> HttpResponse {
-    match check_authorization_level(request) {
-        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
-        _ => {}
+    let authorization_level = check_authorization_level(request);
+    if let None = authorization_level {
+        return HttpResponse::BadRequest().body("Authorization header was malformed");
     };
     let groups = client
         .database(DATABASE_NAME)
         .collection::<Group>(GROUP_COLLECTION_NAME);
-    match groups.find_one(doc! { "id": id.into_inner()}, None).await {
-        Ok(Some(group)) => HttpResponse::Ok().json(&group.expenses),
-        Ok(None) => HttpResponse::NotFound().body("Couldn't find the desired group"),
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
-    }
+    let group = match groups.find_one(doc! { "id": id.into_inner()}, None).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return HttpResponse::NotFound().body("Couldn't find the desired group"),
+        Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
+    };
+    if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
+        if check_if_user_is_in_group(&nick, &group) {
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
+        }
+    };
+    HttpResponse::Ok().json(&group.expenses)
 }
 
 #[actix_web::main]

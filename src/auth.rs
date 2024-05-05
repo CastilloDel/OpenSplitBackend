@@ -1,17 +1,28 @@
-use std::{env, io::Read, num::ParseIntError};
-
+use crate::schemas::UserNick;
 use actix_web::{http::header::HeaderValue, HttpRequest};
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::{env, io::Read, num::ParseIntError};
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, PartialEq)]
 pub enum AuthorizationLevel {
     Bot,
-    Frontend,
+    Frontend(UserNick),
 }
 
-type HmacSha256 = Hmac<Sha256>;
+#[derive(Deserialize, Debug, Clone)]
+struct TelegramAuthData {
+    auth_date: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    id: String,
+    photo_url: Option<String>,
+    username: String,
+    hash: String,
+}
 
 pub fn check_authorization_level(request: HttpRequest) -> Option<AuthorizationLevel> {
     let authorization = request
@@ -35,9 +46,9 @@ pub fn check_authorization_level(request: HttpRequest) -> Option<AuthorizationLe
         .map(|n| u8::from_str_radix(&String::from_iter(n), 16))
         .collect::<Result<Vec<u8>, ParseIntError>>()
         .ok()?;
-    let computed_hash = compute_hash(auth_data, bot_token);
+    let computed_hash = compute_hash(auth_data.clone(), bot_token);
     if computed_hash == hash {
-        Some(AuthorizationLevel::Frontend)
+        Some(AuthorizationLevel::Frontend(auth_data.username))
     } else {
         None
     }
@@ -50,7 +61,7 @@ fn compute_hash(auth_data: TelegramAuthData, bot_token: String) -> Vec<u8> {
         ("id", Some(auth_data.id)),
         ("last_name", auth_data.last_name),
         ("photo_url", auth_data.photo_url),
-        ("username", auth_data.username),
+        ("username", Some(auth_data.username)),
     ]
     .into_iter()
     .filter_map(|pair| pair.1.map(|val| format!("{}={}", pair.0, val)))
@@ -69,15 +80,4 @@ fn compute_hash(auth_data: TelegramAuthData, bot_token: String) -> Vec<u8> {
         .filter_map(|a| a.ok())
         .collect::<Vec<u8>>();
     computed_hash
-}
-
-#[derive(Deserialize)]
-struct TelegramAuthData {
-    auth_date: String,
-    first_name: Option<String>,
-    last_name: Option<String>,
-    id: String,
-    photo_url: Option<String>,
-    username: Option<String>,
-    hash: String,
 }
