@@ -1,11 +1,15 @@
 use actix_cors::Cors;
-use actix_web::{get, post, put, web, App, HttpResponse, HttpServer};
+use actix_web::{get, post, put, web, App, HttpRequest, HttpResponse, HttpServer};
 use balance::{compute_balance_from_group, compute_user_balance_by_group};
 use exchange::get_exchanges_from_group;
 use futures::stream::StreamExt;
 use mongodb::{bson::doc, options::IndexOptions, Client, IndexModel};
 use schemas::{Expense, Group};
 use serde::{Deserialize, Serialize};
+use std::env;
+
+use crate::auth::check_authorization_level;
+mod auth;
 mod balance;
 mod exchange;
 mod schemas;
@@ -20,10 +24,15 @@ struct GroupNameJson {
 
 #[put("/groups/{id}")]
 async fn add_group(
+    request: HttpRequest,
     client: web::Data<Client>,
     id: web::Path<String>,
     json: web::Json<GroupNameJson>,
 ) -> HttpResponse {
+    match check_authorization_level(request) {
+        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        _ => {}
+    };
     let groups = client
         .database(DATABASE_NAME)
         .collection(GROUP_COLLECTION_NAME);
@@ -39,7 +48,15 @@ async fn add_group(
 }
 
 #[get("/groups/{id}/balance")]
-async fn get_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
+async fn get_balance(
+    request: HttpRequest,
+    client: web::Data<Client>,
+    id: web::Path<String>,
+) -> HttpResponse {
+    match check_authorization_level(request) {
+        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        _ => {}
+    };
     let groups = client
         .database(DATABASE_NAME)
         .collection(GROUP_COLLECTION_NAME);
@@ -52,10 +69,15 @@ async fn get_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpRe
 
 #[post("/groups/{id}/expenses")]
 async fn add_expense(
+    request: HttpRequest,
     client: web::Data<Client>,
     id: web::Path<String>,
     expense: web::Json<Expense>,
 ) -> HttpResponse {
+    match check_authorization_level(request) {
+        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        _ => {}
+    };
     let groups = client
         .database(DATABASE_NAME)
         .collection::<Group>(GROUP_COLLECTION_NAME);
@@ -74,8 +96,15 @@ async fn add_expense(
 }
 
 #[get("/users/{nick}/balance")]
-async fn get_user_balance(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
-    println!("hola");
+async fn get_user_balance(
+    request: HttpRequest,
+    client: web::Data<Client>,
+    id: web::Path<String>,
+) -> HttpResponse {
+    match check_authorization_level(request) {
+        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        _ => {}
+    };
     let groups = client
         .database(DATABASE_NAME)
         .collection::<Group>(GROUP_COLLECTION_NAME);
@@ -95,7 +124,15 @@ async fn get_user_balance(client: web::Data<Client>, id: web::Path<String>) -> H
 }
 
 #[get("/groups/{id}/exchanges")]
-async fn get_exchanges(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
+async fn get_exchanges(
+    request: HttpRequest,
+    client: web::Data<Client>,
+    id: web::Path<String>,
+) -> HttpResponse {
+    match check_authorization_level(request) {
+        None => return HttpResponse::BadRequest().body("Authorization header was malformed"),
+        _ => {}
+    };
     let groups = client
         .database(DATABASE_NAME)
         .collection(GROUP_COLLECTION_NAME);
@@ -108,8 +145,8 @@ async fn get_exchanges(client: web::Data<Client>, id: web::Path<String>) -> Http
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let uri = std::env::var("MONGODB_URI").expect("You need to add the MONGODB_URI to the env");
-    println!("Using the following URI: {}", uri);
+    let uri = env::var("MONGODB_URI").expect("You need to add MONGODB_URI to the env");
+    let _bot_token = env::var("BOT_API_TOKEN").expect("You need to add API_BOT_TOKEN to the env");
 
     let client = Client::with_uri_str(uri).await.expect("failed to connect");
     println!("Connected");
