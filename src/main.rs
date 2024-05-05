@@ -78,7 +78,7 @@ async fn get_balance(
         Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
     };
     if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
-        if check_if_user_is_in_group(&nick, &group) {
+        if !check_if_user_is_in_group(&nick, &group) {
             return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
         }
     };
@@ -167,7 +167,7 @@ async fn get_exchanges(
         Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
     };
     if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
-        if check_if_user_is_in_group(&nick, &group) {
+        if !check_if_user_is_in_group(&nick, &group) {
             return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
         }
     };
@@ -193,7 +193,7 @@ async fn get_expenses(
         Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
     };
     if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
-        if check_if_user_is_in_group(&nick, &group) {
+        if !check_if_user_is_in_group(&nick, &group) {
             return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
         }
     };
@@ -227,6 +227,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_balance)
             .service(add_expense)
             .service(get_user_balance)
+            .service(get_exchanges)
             .service(get_expenses)
     })
     .bind(("0.0.0.0", 8080))?
