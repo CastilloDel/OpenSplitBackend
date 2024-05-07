@@ -1,5 +1,5 @@
 use actix_cors::Cors;
-use actix_web::{get, post, put, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{delete, get, post, put, web, App, HttpRequest, HttpResponse, HttpServer};
 use auth::AuthorizationLevel;
 use balance::{compute_balance_from_group, compute_user_balance_by_group};
 use exchange::get_exchanges_from_group;
@@ -200,6 +200,44 @@ async fn get_expenses(
     HttpResponse::Ok().json(&group.expenses)
 }
 
+#[delete("/groups/{id}/expenses")]
+async fn delete_expense(
+    request: HttpRequest,
+    client: web::Data<Client>,
+    id: web::Path<String>,
+    expense: web::Json<Expense>,
+) -> HttpResponse {
+    let authorization_level = check_authorization_level(request);
+    if let None = authorization_level {
+        return HttpResponse::BadRequest().body("Authorization header was malformed");
+    };
+    let id = id.into_inner();
+    let groups = client
+        .database(DATABASE_NAME)
+        .collection::<Group>(GROUP_COLLECTION_NAME);
+    let group = match groups.find_one(doc! { "id": &id}, None).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return HttpResponse::NotFound().body("Couldn't find the desired group"),
+        Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
+    };
+    if let Some(AuthorizationLevel::Frontend(nick)) = authorization_level {
+        if !check_if_user_is_in_group(&nick, &group) {
+            return HttpResponse::Unauthorized().body("Missing permissions to carry on the query");
+        }
+    };
+    match groups
+        .update_one(
+            doc! { "id": &id},
+            doc! { "$pull": { "expenses": bson::to_bson(&expense.into_inner()).unwrap()}},
+            None,
+        )
+        .await
+    {
+        Ok(_) => HttpResponse::Ok().body("Expense removed"),
+        Err(err) => return HttpResponse::InternalServerError().body(err.to_string()),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let uri = env::var("MONGODB_URI").expect("You need to add MONGODB_URI to the env");
@@ -229,6 +267,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_user_balance)
             .service(get_exchanges)
             .service(get_expenses)
+            .service(delete_expense)
     })
     .bind(("0.0.0.0", 8080))?
     .run()
